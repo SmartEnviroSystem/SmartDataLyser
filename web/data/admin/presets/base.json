@@ -1,0 +1,191 @@
+{
+    "list": [
+        {
+            "name": "Base tables",  
+            "desc": "SmartDataJobs base tables",
+            "version": "3.0 Alpha",
+            "state": [
+                {
+                    "name": "tbl_ootype",
+                    "type": "rest",
+                    "method": "defs",
+                    "fromName": "tbl_ootype"
+                },
+                {
+                    "name": "tbl_metatype",
+                    "type": "rest",
+                    "method": "defs",
+                    "fromName": "tbl_metatype"
+                }
+            ],
+            "collections": [
+                {
+                    "name": "tbl_ootype",
+                    "fromName": "tbl_ootype",
+                    "method": "cdefs",
+                    "body": {
+                        "name": "tbl_ootype",
+                        "attributes": [
+                            {
+                                "isIdentity": true,
+                                "isAutoIncrement": true,
+                                "isNullable": false,
+                                "name": "id",
+                                "type": "bigserial"
+                            },
+                            {
+                                "name": "name",
+                                "type": "varchar(255)"
+                            },
+                            {
+                                "name": "description",
+                                "type": "varchar(255)"
+                            },
+                            {
+                                "name": "icon",
+                                "type": "varchar(255)"
+                            },
+                            {
+                                "name": "flattendsets",
+                                "type": "bool"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "tbl_metatype",
+                    "fromName": "tbl_metatype",
+                    "method": "cdefs",
+                    "body": {
+                        "name": "tbl_metatype",
+                        "attributes": [
+                            {
+                                "isIdentity": true,
+                                "isAutoIncrement": true,
+                                "isNullable": false,
+                                "name": "id",
+                                "type": "bigserial"
+                            },
+                            {
+                                "name": "name",
+                                "type": "varchar(255)"
+                            },
+                            {
+                                "name": "description",
+                                "type": "varchar(255)"
+                            },
+                            {
+                                "name": "icon",
+                                "type": "varchar(255)"
+                            },
+                            {
+                                "name": "type",
+                                "type": "varchar(45)"
+                            },
+                            {
+                                "name": "unit",
+                                "type": "varchar(45)"
+                            },
+                            {
+                                "name": "possiblevalues",
+                                "type": "varchar(255)"
+                            },
+                            {
+                                "name": "isidentity",
+                                "type": "boolean"
+                            },
+                            {
+                                "name": "isnullable",
+                                "type": "boolean"
+                            },
+                            {
+                                "name": "isautoincrement",
+                                "type": "boolean"
+                            },
+                            {
+                                "name": "refcollection",
+                                "type": "varchar"
+                            },
+                            {
+                                "name": "refattribute",
+                                "type": "varchar"
+                            },
+                            {
+                                "name": "refstorage",
+                                "type": "varchar"
+                            },
+                            {
+                                "name": "refondelete",
+                                "type": "varchar"
+                            },
+                            {
+                                "name": "refonupdate",
+                                "type": "varchar"
+                            },
+                            {
+                                "name": "ootype_id",
+                                "type": "int8"
+                            },
+                            {
+                                "name": "editable",
+                                "type": "bool"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },{
+            "name": "Example table and datasets",  
+            "desc": "Example for an additonal table with datasets",
+            "version": "3.0 Alpha",
+            "state": [
+                {
+                    "name": "tbl_example",
+                    "type": "rest",
+                    "method": "defs",
+                    "fromName": "tbl_example"
+                }
+            ],
+            "collections": [
+                {
+                    "name": "tbl_example",
+                    "fromName": "tbl_example",
+                    "method": "cdefs",
+                    "body": {
+                        "name": "tbl_example",
+                        "attributes": [
+                            {
+                                "isIdentity": true,
+                                "isAutoIncrement": true,
+                                "isNullable": false,
+                                "name": "id",
+                                "type": "bigserial"
+                            },
+                            {
+                                "name": "name",
+                                "type": "varchar(255)"
+                            }
+                        ]
+                    }
+                }
+            ],
+            "data": [
+                {
+                    "name": "tbl_example",
+                    "fromName": "tbl_example",
+                    "method": "create",
+                    "body": [
+                        {
+                            "id": 1,
+                            "name": "Dataset 1"
+                        },
+                        {
+                            "id": 2,
+                            "name": "Dataset 2"
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
