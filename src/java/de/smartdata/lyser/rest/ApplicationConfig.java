@@ -32,6 +32,7 @@ public class ApplicationConfig extends Application {
         resources.add(de.fhbielefeld.smartuser.rest.AuthenticationFilter.class);
         resources.add(de.fhbielefeld.smartuser.rest.OwnershipFilter.class);
         resources.add(de.ngi.restutils.LoggingFilter.class);
+        resources.add(de.smartdata.lyser.rest.AnomalyResource.class);
         resources.add(de.smartdata.lyser.rest.CheckResource.class);
         resources.add(de.smartdata.lyser.rest.CompareResource.class);
         resources.add(de.smartdata.lyser.rest.DataAggregationResource.class);
