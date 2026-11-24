@@ -49,7 +49,6 @@ public class AnomalyResource implements Serializable {
     private static final int DEFAULT_PERIOD_DAYS = 30;
 
     public AnomalyResource() {
-        // Init logging
         try {
             String moduleName = (String) new javax.naming.InitialContext().lookup("java:module/ModuleName");
             Logger.getInstance("SmartDataLyser", moduleName);
