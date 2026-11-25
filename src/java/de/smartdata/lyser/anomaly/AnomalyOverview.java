@@ -29,6 +29,10 @@ public class AnomalyOverview {
      * Steps longer than this multiple of the measure interval are missing values.
      */
     public static final double GAP_FACTOR = 3;
+    /**
+     * Most columns of the overview, the finest unit that stays within is used.
+     */
+    public static final int MAX_BUCKETS = 60;
 
     private final LocalDateTime first;
     private final Duration bucket;
@@ -36,17 +40,34 @@ public class AnomalyOverview {
     private final List<LocalDateTime> buckets = new ArrayList<>();
 
     /**
+     * A period with data, a gap or an anomaly, found independent of the buckets.
+     */
+    public record Event(LocalDateTime from, LocalDateTime until, String category) {
+
+    }
+
+    public AnomalyOverview(LocalDateTime start, LocalDateTime end) {
+        this(start, end, 0);
+    }
+
+    /**
      * @param start Start of the period
      * @param end End of the period
+     * @param minBucketSeconds Buckets are not finer than this, e.g. the measure interval
      */
-    public AnomalyOverview(LocalDateTime start, LocalDateTime end) {
-        // At most about 40 columns: hours up to 2 days, days up to 60 days, then weeks
-        long hours = Duration.between(start, end).toHours();
-        if (hours <= 48) {
+    public AnomalyOverview(LocalDateTime start, LocalDateTime end, long minBucketSeconds) {
+        // The finest of minutes, hours, days and weeks with at most MAX_BUCKETS columns
+        // that is not finer than minBucketSeconds (finer buckets would mostly hold no value)
+        long seconds = Duration.between(start, end).toSeconds();
+        if (minBucketSeconds <= 60 && seconds <= MAX_BUCKETS * 60L) {
+            this.bucket = Duration.ofMinutes(1);
+            this.bucketName = "minute";
+            this.first = start.truncatedTo(ChronoUnit.MINUTES);
+        } else if (minBucketSeconds <= 3600 && seconds <= MAX_BUCKETS * 3600L) {
             this.bucket = Duration.ofHours(1);
             this.bucketName = "hour";
             this.first = start.truncatedTo(ChronoUnit.HOURS);
-        } else if (hours <= 60 * 24) {
+        } else if (minBucketSeconds <= 86400 && seconds <= MAX_BUCKETS * 86400L) {
             this.bucket = Duration.ofDays(1);
             this.bucketName = "day";
             this.first = start.truncatedTo(ChronoUnit.DAYS);
@@ -65,38 +86,59 @@ public class AnomalyOverview {
     }
 
     /**
-     * @return hour, day or week
+     * @return minute, hour, day or week
      */
     public String getBucketName() {
         return this.bucketName;
     }
 
     /**
-     * Runs all detectors on the series and gets the most important category
-     * per bucket.
+     * Runs all detectors and the gap check on the series. The result does not
+     * depend on the buckets, so the bucket size can be chosen afterwards.
      *
      * @param series Values ordered by time
-     * @return Category per bucket
+     * @return Periods with data (normal), gaps (missing) and anomalies
      */
-    public String[] categorize(List<TimeValue> series) {
-        String[] cells = new String[this.buckets.size()];
-        Arrays.fill(cells, NODATA);
-        for (TimeValue curValue : series)
-            this.mark(cells, curValue.time(), curValue.time(), NORMAL);
+    public static List<Event> analyse(List<TimeValue> series) {
+        List<Event> events = new ArrayList<>();
+        long interval = SeriesStatistics.medianIntervalSeconds(series);
+        int runStart = 0;
+        for (int i = 1; i <= series.size(); i++) {
+            boolean gap = i < series.size() && interval > 0
+                    && SeriesStatistics.secondsBetween(series.get(i - 1), series.get(i)) > interval * GAP_FACTOR;
+            if (i == series.size() || gap) {
+                events.add(new Event(series.get(runStart).time(), series.get(i - 1).time(), NORMAL));
+                if (gap)
+                    events.add(new Event(series.get(i - 1).time(), series.get(i).time(), MISSING));
+                runStart = i;
+            }
+        }
 
         List<AnomalyDetector> detectors = List.of(new RateOfChangeDetector(null, null),
                 new FlatlineDetector(null, null, null), new OscillationDetector(null, null, null));
         for (AnomalyDetector curDetector : detectors) {
             for (Anomaly curAnomaly : curDetector.detect(series))
-                this.mark(cells, curAnomaly.getFrom(), curAnomaly.getUntil(), category(curAnomaly));
+                events.add(new Event(curAnomaly.getFrom(), curAnomaly.getUntil(), category(curAnomaly)));
         }
+        return events;
+    }
 
-        long interval = SeriesStatistics.medianIntervalSeconds(series);
-        for (int i = 1; interval > 0 && i < series.size(); i++) {
-            if (SeriesStatistics.secondsBetween(series.get(i - 1), series.get(i)) > interval * GAP_FACTOR)
-                this.mark(cells, series.get(i - 1).time(), series.get(i).time(), MISSING);
-        }
+    /**
+     * Gets the most important category per bucket.
+     *
+     * @param events Result of analyse()
+     * @return Category per bucket
+     */
+    public String[] project(List<Event> events) {
+        String[] cells = new String[this.buckets.size()];
+        Arrays.fill(cells, NODATA);
+        for (Event curEvent : events)
+            this.mark(cells, curEvent.from(), curEvent.until(), curEvent.category());
         return cells;
+    }
+
+    public String[] categorize(List<TimeValue> series) {
+        return this.project(analyse(series));
     }
 
     static String category(Anomaly anomaly) {

@@ -19,9 +19,17 @@ public class AnomalyOverviewTest {
 
     @Test
     public void bucketSizeDependsOnPeriod() {
+        AnomalyOverview halfHour = new AnomalyOverview(START, START.plusMinutes(30));
+        assertEquals("minute", halfHour.getBucketName());
+        assertEquals(30, halfHour.getBuckets().size());
+
         AnomalyOverview oneDay = new AnomalyOverview(START, START.plusDays(1));
         assertEquals("hour", oneDay.getBucketName());
         assertEquals(24, oneDay.getBuckets().size());
+
+        // Up to 60 columns: 60 hours are still hours, 3 days are days
+        assertEquals("hour", new AnomalyOverview(START, START.plusHours(60)).getBucketName());
+        assertEquals("day", new AnomalyOverview(START, START.plusDays(3)).getBucketName());
 
         AnomalyOverview month = new AnomalyOverview(START, START.plusDays(30));
         assertEquals("day", month.getBucketName());
@@ -31,6 +39,15 @@ public class AnomalyOverviewTest {
         AnomalyOverview quarter = new AnomalyOverview(START, START.plusDays(90));
         assertEquals("week", quarter.getBucketName());
         assertEquals(LocalDateTime.of(2026, 9, 28, 0, 0), quarter.getBuckets().get(0));
+    }
+
+    @Test
+    public void bucketIsNotFinerThanMeasureInterval() {
+        // Values every 15 minutes: no minute buckets, a day stays in hours
+        assertEquals("hour", new AnomalyOverview(START, START.plusMinutes(30), 900).getBucketName());
+        assertEquals("hour", new AnomalyOverview(START, START.plusDays(1), 900).getBucketName());
+        // Values every 2 hours: days
+        assertEquals("day", new AnomalyOverview(START, START.plusDays(1), 7200).getBucketName());
     }
 
     @Test

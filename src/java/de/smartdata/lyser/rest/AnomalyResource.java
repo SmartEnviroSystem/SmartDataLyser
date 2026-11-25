@@ -11,6 +11,7 @@ import de.smartdata.lyser.anomaly.FlatlineDetector;
 import de.smartdata.lyser.anomaly.OscillationDetector;
 import de.smartdata.lyser.anomaly.RateOfChangeDetector;
 import de.smartdata.lyser.anomaly.SeriesLoader;
+import de.smartdata.lyser.anomaly.SeriesStatistics;
 import de.smartdata.lyser.anomaly.TimeValue;
 import de.smartdata.lyser.data.SmartDataAccessorException;
 import de.smartdata.lyser.rest.anomaly.OverviewRequest;
@@ -182,7 +183,7 @@ public class AnomalyResource implements Serializable {
     @Produces(MediaType.APPLICATION_JSON)
     @SmartUserAuth
     @Operation(summary = "Overview",
-            description = "Checks all given attributes of several datasets with all detectors and delivers the most important anomaly category per time bucket (hour, day or week, depending on the period)")
+            description = "Checks all given attributes of several datasets with all detectors and delivers the most important anomaly category per time bucket (the finest of minute, hour, day and week that gives at most 60 buckets and is not finer than the measure interval)")
     @APIResponse(
             responseCode = "200",
             description = "Buckets and one row per dataset")
@@ -221,34 +222,53 @@ public class AnomalyResource implements Serializable {
         }
         String storage = request.storage == null ? "public" : request.storage;
 
-        AnomalyOverview overview = new AnomalyOverview(startDate, endDate);
-        List<Map<String, Object>> rows = new ArrayList<>();
+        // Analyse every series first, then choose the buckets: not finer than the
+        // slowest measure interval, otherwise most buckets would hold no value
+        List<Map<String, List<AnomalyOverview.Event>>> eventsPerRow = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
+        long measureInterval = 0;
         for (OverviewRequest.Series curSeries : request.series) {
-            String[] cells = new String[overview.getBuckets().size()];
-            String[] causes = new String[cells.length];
-            Arrays.fill(cells, AnomalyOverview.NODATA);
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("id", curSeries.id);
-            row.put("name", curSeries.name);
+            Map<String, List<AnomalyOverview.Event>> events = new LinkedHashMap<>();
+            String rowError = null;
             try {
                 Map<String, List<TimeValue>> series = new SeriesLoader().loadAll(smartdataurl, storage, curSeries.collection,
                         curSeries.filter == null ? List.of() : List.of(curSeries.filter),
                         curSeries.dateattribute == null ? "ts" : curSeries.dateattribute,
                         curSeries.attributes, startDate, endDate);
                 for (Map.Entry<String, List<TimeValue>> curEntry : series.entrySet()) {
-                    String[] attributeCells = overview.categorize(curEntry.getValue());
-                    for (int i = 0; i < cells.length; i++) {
-                        String worse = AnomalyOverview.worse(cells[i], attributeCells[i]);
-                        if (!worse.equals(cells[i])) {
-                            cells[i] = worse;
-                            // The measured value to open in the detail view
-                            causes[i] = AnomalyOverview.RANKING.indexOf(worse) > AnomalyOverview.RANKING.indexOf(AnomalyOverview.NORMAL)
-                                    ? curEntry.getKey() : null;
-                        }
-                    }
+                    events.put(curEntry.getKey(), AnomalyOverview.analyse(curEntry.getValue()));
+                    measureInterval = Math.max(measureInterval, SeriesStatistics.medianIntervalSeconds(curEntry.getValue()));
                 }
             } catch (SmartDataAccessorException ex) {
-                row.put("error", "Could not load data: " + ex.getLocalizedMessage());
+                rowError = "Could not load data: " + ex.getLocalizedMessage();
+            }
+            eventsPerRow.add(events);
+            errors.add(rowError);
+        }
+
+        AnomalyOverview overview = new AnomalyOverview(startDate, endDate, measureInterval);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int rowIndex = 0; rowIndex < request.series.size(); rowIndex++) {
+            OverviewRequest.Series curSeries = request.series.get(rowIndex);
+            String[] cells = new String[overview.getBuckets().size()];
+            String[] causes = new String[cells.length];
+            Arrays.fill(cells, AnomalyOverview.NODATA);
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", curSeries.id);
+            row.put("name", curSeries.name);
+            if (errors.get(rowIndex) != null)
+                row.put("error", errors.get(rowIndex));
+            for (Map.Entry<String, List<AnomalyOverview.Event>> curEntry : eventsPerRow.get(rowIndex).entrySet()) {
+                String[] attributeCells = overview.project(curEntry.getValue());
+                for (int i = 0; i < cells.length; i++) {
+                    String worse = AnomalyOverview.worse(cells[i], attributeCells[i]);
+                    if (!worse.equals(cells[i])) {
+                        cells[i] = worse;
+                        // The measured value to open in the detail view
+                        causes[i] = AnomalyOverview.RANKING.indexOf(worse) > AnomalyOverview.RANKING.indexOf(AnomalyOverview.NORMAL)
+                                ? curEntry.getKey() : null;
+                    }
+                }
             }
             List<Map<String, Object>> rowCells = new ArrayList<>();
             for (int i = 0; i < cells.length; i++) {
