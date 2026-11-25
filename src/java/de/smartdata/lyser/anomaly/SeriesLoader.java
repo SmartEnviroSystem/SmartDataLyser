@@ -12,7 +12,9 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -56,12 +58,27 @@ public class SeriesLoader {
     public List<TimeValue> load(String smartdataurl, String storage, String collection,
             List<String> filters, String dateattribute, String attribute,
             LocalDateTime start, LocalDateTime end) throws SmartDataAccessorException {
+        return this.loadAll(smartdataurl, storage, collection, filters, dateattribute, List.of(attribute), start, end).get(attribute);
+    }
+
+    /**
+     * Loads several attributes of a collection with one request.
+     *
+     * @return Series per attribute, in the order of the attributes
+     * @throws SmartDataAccessorException if SmartData could not be accessed
+     */
+    public Map<String, List<TimeValue>> loadAll(String smartdataurl, String storage, String collection,
+            List<String> filters, String dateattribute, List<String> attributes,
+            LocalDateTime start, LocalDateTime end) throws SmartDataAccessorException {
         SmartDataAccessor sda = new SmartDataAccessor();
         JsonArray data = sda.fetchData(smartdataurl, collection, storage,
-                dateattribute + "," + attribute, filters, dateattribute,
+                dateattribute + "," + String.join(",", attributes), filters, dateattribute,
                 start, end, dateattribute + ",ASC", null);
         this.smartdataRequest = sda.getSmartdataRequest();
-        return this.toSeries(data, dateattribute, attribute);
+        Map<String, List<TimeValue>> series = new LinkedHashMap<>();
+        for (String curAttribute : attributes)
+            series.put(curAttribute, this.toSeries(data, dateattribute, curAttribute));
+        return series;
     }
 
     /**

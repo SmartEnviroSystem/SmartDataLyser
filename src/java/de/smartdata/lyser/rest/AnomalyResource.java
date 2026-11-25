@@ -6,15 +6,18 @@ import de.fhbielefeld.scl.rest.util.ResponseObjectBuilder;
 import de.fhbielefeld.smartuser.annotations.SmartUserAuth;
 import de.smartdata.lyser.anomaly.Anomaly;
 import de.smartdata.lyser.anomaly.AnomalyDetector;
+import de.smartdata.lyser.anomaly.AnomalyOverview;
 import de.smartdata.lyser.anomaly.FlatlineDetector;
 import de.smartdata.lyser.anomaly.OscillationDetector;
 import de.smartdata.lyser.anomaly.RateOfChangeDetector;
 import de.smartdata.lyser.anomaly.SeriesLoader;
 import de.smartdata.lyser.anomaly.TimeValue;
 import de.smartdata.lyser.data.SmartDataAccessorException;
+import de.smartdata.lyser.rest.anomaly.OverviewRequest;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
@@ -24,6 +27,8 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import javax.naming.NamingException;
@@ -171,6 +176,100 @@ public class AnomalyResource implements Serializable {
                 smartdataurl, storage, collection, attribute, filters, dateattribute, startDateStr, endDateStr);
     }
 
+    @POST
+    @Path("overview")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @SmartUserAuth
+    @Operation(summary = "Overview",
+            description = "Checks all given attributes of several datasets with all detectors and delivers the most important anomaly category per time bucket (hour, day or week, depending on the period)")
+    @APIResponse(
+            responseCode = "200",
+            description = "Buckets and one row per dataset")
+    @APIResponse(
+            responseCode = "400",
+            description = "Invalid request")
+    public Response overview(OverviewRequest request) {
+        ResponseObjectBuilder rob = new ResponseObjectBuilder();
+        String error = "";
+        if (request == null || request.series == null || request.series.isEmpty()) {
+            error += "The request needs at least one entry in >series<. ";
+        } else {
+            for (OverviewRequest.Series curSeries : request.series) {
+                if (!SeriesLoader.isValidName(curSeries.collection))
+                    error += "Collection >" + curSeries.collection + "< is missing or invalid. ";
+                if (curSeries.dateattribute != null && !SeriesLoader.isValidName(curSeries.dateattribute))
+                    error += "Date attribute >" + curSeries.dateattribute + "< is invalid. ";
+                if (curSeries.attributes == null || curSeries.attributes.isEmpty()
+                        || !curSeries.attributes.stream().allMatch(SeriesLoader::isValidName))
+                    error += "Attributes of >" + curSeries.collection + "< are missing or invalid. ";
+            }
+        }
+        LocalDateTime endDate = this.parseDateTime(request == null ? null : request.end, LocalDateTime.now());
+        LocalDateTime startDate = this.parseDateTime(request == null ? null : request.start,
+                endDate == null ? null : endDate.minusDays(DEFAULT_PERIOD_DAYS));
+        error += this.checkPeriod(startDate, endDate);
+        if (!error.isEmpty()) {
+            rob.setStatus(Response.Status.BAD_REQUEST);
+            rob.addErrorMessage(error.trim());
+            return rob.toResponse();
+        }
+
+        String smartdataurl = request.smartdataurl == null ? "/SmartData" : request.smartdataurl;
+        if (smartdataurl.startsWith("/")) {
+            smartdataurl = "http://localhost:8080" + smartdataurl;
+        }
+        String storage = request.storage == null ? "public" : request.storage;
+
+        AnomalyOverview overview = new AnomalyOverview(startDate, endDate);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (OverviewRequest.Series curSeries : request.series) {
+            String[] cells = new String[overview.getBuckets().size()];
+            String[] causes = new String[cells.length];
+            Arrays.fill(cells, AnomalyOverview.NODATA);
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", curSeries.id);
+            row.put("name", curSeries.name);
+            try {
+                Map<String, List<TimeValue>> series = new SeriesLoader().loadAll(smartdataurl, storage, curSeries.collection,
+                        curSeries.filter == null ? List.of() : List.of(curSeries.filter),
+                        curSeries.dateattribute == null ? "ts" : curSeries.dateattribute,
+                        curSeries.attributes, startDate, endDate);
+                for (Map.Entry<String, List<TimeValue>> curEntry : series.entrySet()) {
+                    String[] attributeCells = overview.categorize(curEntry.getValue());
+                    for (int i = 0; i < cells.length; i++) {
+                        String worse = AnomalyOverview.worse(cells[i], attributeCells[i]);
+                        if (!worse.equals(cells[i])) {
+                            cells[i] = worse;
+                            // The measured value to open in the detail view
+                            causes[i] = AnomalyOverview.RANKING.indexOf(worse) > AnomalyOverview.RANKING.indexOf(AnomalyOverview.NORMAL)
+                                    ? curEntry.getKey() : null;
+                        }
+                    }
+                }
+            } catch (SmartDataAccessorException ex) {
+                row.put("error", "Could not load data: " + ex.getLocalizedMessage());
+            }
+            List<Map<String, Object>> rowCells = new ArrayList<>();
+            for (int i = 0; i < cells.length; i++) {
+                Map<String, Object> cell = new LinkedHashMap<>();
+                cell.put("category", cells[i]);
+                cell.put("attribute", causes[i]);
+                rowCells.add(cell);
+            }
+            row.put("cells", rowCells);
+            rows.add(row);
+        }
+
+        rob.add("start", startDate.toString());
+        rob.add("end", endDate.toString());
+        rob.add("bucket", overview.getBucketName());
+        rob.add("buckets", overview.getBuckets().stream().map(LocalDateTime::toString).toList());
+        rob.add("rows", rows);
+        rob.setStatus(Response.Status.OK);
+        return rob.toResponse();
+    }
+
     /**
      * Loads the series and runs the detector on it.
      *
@@ -194,11 +293,7 @@ public class AnomalyResource implements Serializable {
         }
         LocalDateTime endDate = this.parseDateTime(endDateStr, LocalDateTime.now());
         LocalDateTime startDate = this.parseDateTime(startDateStr, endDate == null ? null : endDate.minusDays(DEFAULT_PERIOD_DAYS));
-        if (startDate == null || endDate == null) {
-            error += "Parameters >start< and >end< must have the format 2020-12-24T18:00. ";
-        } else if (!startDate.isBefore(endDate)) {
-            error += "Parameter >start< must be before >end<. ";
-        }
+        error += this.checkPeriod(startDate, endDate);
         if (!error.isEmpty()) {
             rob.setStatus(Response.Status.BAD_REQUEST);
             rob.addErrorMessage(error.trim());
@@ -238,6 +333,14 @@ public class AnomalyResource implements Serializable {
         }
         rob.setStatus(Response.Status.OK);
         return rob.toResponse();
+    }
+
+    private String checkPeriod(LocalDateTime start, LocalDateTime end) {
+        if (start == null || end == null)
+            return "Parameters >start< and >end< must have the format 2020-12-24T18:00. ";
+        if (!start.isBefore(end))
+            return "Parameter >start< must be before >end<. ";
+        return "";
     }
 
     private String checkPositive(String name, Number value) {
