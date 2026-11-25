@@ -42,12 +42,12 @@ public class AnomalyOverviewTest {
     }
 
     @Test
-    public void bucketIsNotFinerThanMeasureInterval() {
-        // Values every 15 minutes: no minute buckets, a day stays in hours
-        assertEquals("hour", new AnomalyOverview(START, START.plusMinutes(30), 900).getBucketName());
-        assertEquals("hour", new AnomalyOverview(START, START.plusDays(1), 900).getBucketName());
-        // Values every 2 hours: days
-        assertEquals("day", new AnomalyOverview(START, START.plusDays(1), 7200).getBucketName());
+    public void minutesBetweenValuesAreNormal() {
+        // Values every 15 minutes, minute buckets in between are filled
+        String[] cells = new AnomalyOverview(START, START.plusMinutes(30)).categorize(new SeriesBuilder().smooth(3).build());
+        assertEquals(30, cells.length);
+        for (String curCell : cells)
+            assertEquals("normal", curCell);
     }
 
     @Test

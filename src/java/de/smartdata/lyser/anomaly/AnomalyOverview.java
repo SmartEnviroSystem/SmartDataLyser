@@ -47,27 +47,17 @@ public class AnomalyOverview {
     }
 
     public AnomalyOverview(LocalDateTime start, LocalDateTime end) {
-        this(start, end, 0);
-    }
-
-    /**
-     * @param start Start of the period
-     * @param end End of the period
-     * @param minBucketSeconds Buckets are not finer than this, e.g. the measure interval
-     */
-    public AnomalyOverview(LocalDateTime start, LocalDateTime end, long minBucketSeconds) {
         // The finest of minutes, hours, days and weeks with at most MAX_BUCKETS columns
-        // that is not finer than minBucketSeconds (finer buckets would mostly hold no value)
         long seconds = Duration.between(start, end).toSeconds();
-        if (minBucketSeconds <= 60 && seconds <= MAX_BUCKETS * 60L) {
+        if (seconds <= MAX_BUCKETS * 60L) {
             this.bucket = Duration.ofMinutes(1);
             this.bucketName = "minute";
             this.first = start.truncatedTo(ChronoUnit.MINUTES);
-        } else if (minBucketSeconds <= 3600 && seconds <= MAX_BUCKETS * 3600L) {
+        } else if (seconds <= MAX_BUCKETS * 3600L) {
             this.bucket = Duration.ofHours(1);
             this.bucketName = "hour";
             this.first = start.truncatedTo(ChronoUnit.HOURS);
-        } else if (minBucketSeconds <= 86400 && seconds <= MAX_BUCKETS * 86400L) {
+        } else if (seconds <= MAX_BUCKETS * 86400L) {
             this.bucket = Duration.ofDays(1);
             this.bucketName = "day";
             this.first = start.truncatedTo(ChronoUnit.DAYS);
